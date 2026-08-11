@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ch-studio"
+version = "0.1.0"
+description = "Descarga audio/video de YouTube, separa stems y prepara canciones para chartear en Clone Hero."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "PySide6>=6.6",
+    "yt-dlp>=2024.1.0",
+    "mutagen>=1.47",
+    "librosa>=0.10",
+    "numpy>=1.24",
+    "soundfile>=0.12",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# Separación local de stems. Es pesado (~2GB con torch) por eso es opcional:
+#   pip install -e ".[stems]"
+stems = [
+    "demucs>=4.0",
+    "torch>=2.1",
+    "torchaudio>=2.1",
+]
+dev = [
+    "pyinstaller>=6.3",
+]
+
+[project.scripts]
+ch-studio = "chstudio.main:main"
+ch-studio-basic = "chstudio.main_basic:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

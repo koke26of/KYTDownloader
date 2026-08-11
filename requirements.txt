@@ -1,0 +1,9 @@
+# Instalación rápida (equivalente a `pip install -e .`).
+# Para separación local de stems con Demucs, instala además: pip install -e ".[stems]"
+PySide6>=6.6
+yt-dlp>=2024.1.0
+mutagen>=1.47
+librosa>=0.10
+numpy>=1.24
+soundfile>=0.12
+requests>=2.31
