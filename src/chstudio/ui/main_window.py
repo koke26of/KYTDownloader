@@ -19,14 +19,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from chstudio.core import autochart, chart, stems
+from chstudio.core import autochart, chart, gpu_env, stems
 from chstudio.ui.base_window import BaseAppWindow
 
 
 class MainWindow(BaseAppWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("CH Studio")
+        self.setWindowTitle("KYTDownloader")
         self.resize(760, 560)
 
         tabs = QTabWidget()
@@ -67,7 +67,7 @@ class MainWindow(BaseAppWindow):
         moises_layout.addLayout(moises_actions)
         layout.addWidget(moises_box)
 
-        demucs_box = QGroupBox("Opción 2: separar localmente (Demucs, offline)")
+        demucs_box = QGroupBox("Opción 2: separar localmente (Demucs, CPU integrado)")
         demucs_layout = QVBoxLayout(demucs_box)
         self.demucs_btn = QPushButton("Separar stems localmente")
         self.demucs_btn.clicked.connect(self._on_separate_local)
@@ -78,12 +78,69 @@ class MainWindow(BaseAppWindow):
         demucs_layout.addWidget(self.demucs_log)
         layout.addWidget(demucs_box)
 
+        gpu_box = QGroupBox("Aceleración GPU (opcional)")
+        gpu_layout = QVBoxLayout(gpu_box)
+        gpu_info = QLabel(
+            "La app trae Demucs en modo CPU (más liviana). Si tenés GPU NVIDIA, podés "
+            "instalar aparte el soporte CUDA para separar mucho más rápido — se guarda "
+            "afuera del programa, en un entorno de Python propio (requiere tener Python "
+            "instalado). Es una descarga grande (~2.5GB) y solo hace falta una vez."
+        )
+        gpu_info.setWordWrap(True)
+        gpu_layout.addWidget(gpu_info)
+        self.gpu_status_label = QLabel("")
+        self.gpu_status_label.setWordWrap(True)
+        gpu_layout.addWidget(self.gpu_status_label)
+        self.gpu_install_btn = QPushButton("Instalar aceleración GPU")
+        self.gpu_install_btn.clicked.connect(self._on_install_gpu)
+        gpu_layout.addWidget(self.gpu_install_btn)
+        self.gpu_log = QTextEdit()
+        self.gpu_log.setReadOnly(True)
+        self.gpu_log.setMaximumHeight(140)
+        self.gpu_log.setVisible(False)
+        gpu_layout.addWidget(self.gpu_log)
+        layout.addWidget(gpu_box)
+        self._refresh_gpu_status()
+
         self.stems_result_label = QLabel("")
         self.stems_result_label.setWordWrap(True)
         layout.addWidget(self.stems_result_label)
 
         layout.addStretch()
         return w
+
+    def _refresh_gpu_status(self) -> None:
+        if gpu_env.is_installed():
+            self.gpu_status_label.setText("✓ GPU instalada — la separación local la usará automáticamente.")
+            self.gpu_install_btn.setText("Reinstalar aceleración GPU")
+        else:
+            self.gpu_status_label.setText("No instalada todavía — usando CPU.")
+            self.gpu_install_btn.setText("Instalar aceleración GPU")
+
+    def _on_install_gpu(self) -> None:
+        self.gpu_install_btn.setEnabled(False)
+        self.gpu_log.setVisible(True)
+        self.gpu_log.clear()
+        self.gpu_status_label.setText("Instalando (esto puede tardar varios minutos)...")
+        self._run(
+            gpu_env.install_gpu_env,
+            on_progress=self._on_gpu_install_progress,
+            on_finished=self._on_gpu_install_finished,
+            on_error=self._on_gpu_install_error,
+        )
+
+    def _on_gpu_install_progress(self, line: object) -> None:
+        if isinstance(line, str):
+            self.gpu_log.append(line)
+
+    def _on_gpu_install_finished(self, _result: object) -> None:
+        self.gpu_install_btn.setEnabled(True)
+        self._refresh_gpu_status()
+
+    def _on_gpu_install_error(self, msg: str) -> None:
+        self.gpu_install_btn.setEnabled(True)
+        self._refresh_gpu_status()
+        QMessageBox.critical(self, "No se pudo instalar la aceleración GPU", msg)
 
     def _on_prepare_moises(self) -> None:
         if self.state.source_audio is None or self.state.song_dir is None:
@@ -115,7 +172,7 @@ class MainWindow(BaseAppWindow):
         if self.state.source_audio is None or self.state.song_dir is None:
             QMessageBox.warning(self, "Sin canción", "Primero descarga una canción.")
             return
-        if not stems.is_demucs_available():
+        if not stems.is_demucs_available() and not gpu_env.is_installed():
             QMessageBox.information(
                 self,
                 "Demucs no instalado",

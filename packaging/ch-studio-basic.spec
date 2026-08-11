@@ -43,7 +43,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="ch-studio-basic",
+    name="KYTDownloader-Basic",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -57,5 +57,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    name="ch-studio-basic",
+    name="KYTDownloader-Basic",
 )

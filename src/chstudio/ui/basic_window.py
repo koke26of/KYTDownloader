@@ -24,7 +24,7 @@ from chstudio.ui.base_window import BaseAppWindow
 class BasicMainWindow(BaseAppWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("CH Studio Basic — Descargar de YouTube")
+        self.setWindowTitle("KYTDownloader Basic — Descargar de YouTube")
         self.resize(640, 480)
 
         tabs = QTabWidget()

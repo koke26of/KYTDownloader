@@ -1,4 +1,4 @@
-"""Punto de entrada de CH Studio."""
+"""Punto de entrada de KYTDownloader (nombre provisorio)."""
 from __future__ import annotations
 
 import sys
@@ -10,7 +10,7 @@ from chstudio.ui.main_window import MainWindow
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("CH Studio")
+    app.setApplicationName("KYTDownloader")
     window = MainWindow()
     window.show()
     return app.exec()

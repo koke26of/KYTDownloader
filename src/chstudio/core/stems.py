@@ -107,13 +107,25 @@ def separate_local(
     device: str = "auto",
     progress_callback: ProgressCallback | None = None,
 ) -> StemsResult:
-    """Separa stems localmente con Demucs. Requiere el extra opcional [stems] instalado.
+    """Separa stems localmente con Demucs.
 
-    Llama a la API de Demucs directamente en el mismo proceso (en vez de lanzar
-    `sys.executable -m demucs` como subproceso): dentro de un .exe empaquetado con
-    PyInstaller, sys.executable apunta al propio ejecutable de la app, así que un
+    La app se distribuye con Demucs en modo CPU. Si el usuario instaló el entorno GPU
+    opcional (ver core/gpu_env.py), esta función delega ahí automáticamente para usar
+    CUDA; si no, corre el Demucs CPU integrado.
+
+    El modo CPU llama a la API de Demucs directamente en el mismo proceso (en vez de
+    lanzar `sys.executable -m demucs` como subproceso): dentro de un .exe empaquetado
+    con PyInstaller, sys.executable apunta al propio ejecutable de la app, así que un
     subproceso así relanzaría la app entera en lugar de correr Demucs.
     """
+    from . import gpu_env
+
+    if gpu_env.is_installed():
+        result_dir, stem_files = gpu_env.separate(
+            source_audio, song_dir, model=model, progress_callback=progress_callback
+        )
+        return StemsResult(stems_dir=result_dir, stem_files=stem_files)
+
     if not is_demucs_available():
         raise DemucsNotInstalledError(
             "Demucs no está instalado. Instálalo con: pip install -e \".[stems]\""
@@ -123,6 +135,13 @@ def separate_local(
 
     if device == "auto":
         device = detect_device()
+    elif device == "cuda" and detect_device() != "cuda":
+        if progress_callback:
+            progress_callback(
+                "Esta build no tiene GPU disponible (versión CPU); usando CPU. "
+                "Instala la aceleración GPU opcional para usar CUDA."
+            )
+        device = "cpu"
 
     stems_dir = song_dir / "stems"
     stems_dir.mkdir(parents=True, exist_ok=True)
