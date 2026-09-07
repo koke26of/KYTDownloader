@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from chstudio.core import ffmpeg_utils, library
+from chstudio.core import ffmpeg_utils, library, updater
 from chstudio.core import downloader as dl
 from chstudio.core.library import LibrarySong
 from chstudio.core.os_utils import open_folder
@@ -51,7 +51,10 @@ class BaseAppWindow(QWidget):
         super().__init__()
         self.settings = Settings.load()
         self.state = SongState()
-        self._active_worker: FunctionWorker | None = None
+        # Lista (no un solo slot) porque ahora puede haber más de un worker a la vez:
+        # el chequeo de actualización de yt-dlp corre en paralelo con lo que sea que
+        # el usuario esté haciendo. Cada worker se saca solo al terminar.
+        self._active_workers: list[FunctionWorker] = []
 
     # ---------------------------------------------------------------- utils
     def _run(self, fn, *args, on_progress=None, on_finished=None, on_error=None, **kwargs):
@@ -65,7 +68,15 @@ class BaseAppWindow(QWidget):
             QMessageBox.critical(self, "Error", msg)
 
         worker.signals.error.connect(on_error or _default_error)
-        self._active_worker = worker  # evita que el GC se lo lleve
+
+        def _cleanup(*_args: object) -> None:
+            if worker in self._active_workers:
+                self._active_workers.remove(worker)
+
+        worker.signals.finished.connect(_cleanup)
+        worker.signals.error.connect(_cleanup)
+
+        self._active_workers.append(worker)  # evita que el GC se lo lleve mientras corre
         worker.start()
         return worker
 
@@ -84,6 +95,17 @@ class BaseAppWindow(QWidget):
     def _build_download_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
+
+        self.update_banner = QLabel("")
+        self.update_banner.setWordWrap(True)
+        self.update_banner.setStyleSheet("color: #b45309; font-weight: bold;")
+        self.update_banner.setVisible(False)
+        layout.addWidget(self.update_banner)
+
+        self.update_ytdlp_btn = QPushButton("Actualizar yt-dlp ahora")
+        self.update_ytdlp_btn.setVisible(False)
+        self.update_ytdlp_btn.clicked.connect(self._on_update_ytdlp_clicked)
+        layout.addWidget(self.update_ytdlp_btn)
 
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText("https://www.youtube.com/watch?v=... o playlist ?list=...")
@@ -125,7 +147,51 @@ class BaseAppWindow(QWidget):
         layout.addWidget(self.download_songs_list)
 
         layout.addStretch()
+
+        self._check_ytdlp_update()
         return w
+
+    def _check_ytdlp_update(self) -> None:
+        """Corre en segundo plano al abrir la app; si falla (sin internet, etc.) no
+        pasa nada, simplemente no se muestra el aviso."""
+        self._run(updater.check_for_update, on_finished=self._on_update_check_finished)
+
+    def _on_update_check_finished(self, result: object) -> None:
+        if not result:
+            return
+        installed, latest = result
+        self.update_banner.setText(
+            f"⚠ yt-dlp desactualizado ({installed} instalada, {latest} disponible). "
+            "Las descargas de YouTube pueden fallar (por ejemplo con error 403) hasta "
+            "que actualices."
+        )
+        self.update_banner.setVisible(True)
+        self.update_ytdlp_btn.setVisible(True)
+
+    def _on_update_ytdlp_clicked(self) -> None:
+        self.update_ytdlp_btn.setEnabled(False)
+        self.update_banner.setText("Descargando actualización de yt-dlp...")
+        self._run(
+            updater.download_latest,
+            on_progress=self._on_update_ytdlp_progress,
+            on_finished=self._on_update_ytdlp_finished,
+            on_error=self._on_update_ytdlp_error,
+        )
+
+    def _on_update_ytdlp_progress(self, msg: object) -> None:
+        if isinstance(msg, str):
+            self.update_banner.setText(msg)
+
+    def _on_update_ytdlp_finished(self, version: object) -> None:
+        self.update_ytdlp_btn.setVisible(False)
+        self.update_banner.setText(
+            f"✓ yt-dlp {version} descargado. Cerrá y volvé a abrir la app para aplicarlo."
+        )
+
+    def _on_update_ytdlp_error(self, msg: str) -> None:
+        self.update_ytdlp_btn.setEnabled(True)
+        self.update_banner.setText("⚠ No se pudo actualizar yt-dlp automáticamente.")
+        QMessageBox.critical(self, "Error al actualizar yt-dlp", msg)
 
     def _on_download_clicked(self) -> None:
         url = self.url_input.text().strip()
