@@ -30,15 +30,64 @@ class SystemPythonNotFoundError(RuntimeError):
     pass
 
 
+def _is_store_alias(path: str) -> bool:
+    return "windowsapps" in path.lower()
+
+
 def find_system_python() -> str | None:
-    """Busca un Python normal instalado en el sistema (no el .exe empaquetado)."""
-    for candidate in ("python", "python3"):
-        found = shutil.which(candidate)
-        if found:
-            return found
+    """Busca un Python normal instalado en el sistema (no el .exe empaquetado).
+
+    Descarta a propósito el alias de Microsoft Store (WindowsApps\\python.exe):
+    incluso con el PATH limpio (ver _subprocess_env), crear un venv con ese Python
+    desde un subproceso lanzado por nuestro .exe empaquetado sigue produciendo un
+    entorno incompleto (sin pyvenv.cfg) — parece ser una limitación propia del
+    alias, no de nuestro entorno. Mejor fallar rápido con un mensaje claro que
+    intentarlo y terminar en un error confuso a mitad de camino.
+
+    En Windows, WindowsApps suele estar ANTES en el PATH que una instalación real de
+    python.org, así que `shutil.which` (que devuelve el primer match) puede tapar un
+    Python perfectamente válido. Por eso acá se recorre TODO el PATH, no solo el
+    primer resultado, y como último recurso se buscan ubicaciones típicas de
+    instalación de python.org.
+    """
+    exe_names = ("python.exe", "python3.exe") if sys.platform == "win32" else ("python3", "python")
+
+    for name in exe_names:
+        for directory in os.environ.get("PATH", "").split(os.pathsep):
+            if not directory:
+                continue
+            candidate = Path(directory) / name
+            if candidate.is_file() and not _is_store_alias(str(candidate)):
+                return str(candidate)
+
     py_launcher = shutil.which("py")
-    if py_launcher:
-        return py_launcher
+    if py_launcher and not _is_store_alias(py_launcher):
+        try:
+            result = subprocess.run(
+                [py_launcher, "-3", "-c", "import sys; print(sys.executable)"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            candidate = result.stdout.strip()
+            if result.returncode == 0 and candidate and not _is_store_alias(candidate) and Path(candidate).is_file():
+                return candidate
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    if sys.platform == "win32":
+        search_roots = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python",
+            Path("C:/Program Files"),
+        ]
+        for root in search_roots:
+            if not root.is_dir():
+                continue
+            for entry in sorted(root.glob("Python3*"), reverse=True):
+                candidate = entry / "python.exe"
+                if candidate.is_file():
+                    return str(candidate)
+
     return None
 
 
@@ -102,8 +151,10 @@ def install_gpu_env(progress_callback: ProgressCallback | None = None) -> None:
     system_python = find_system_python()
     if not system_python:
         raise SystemPythonNotFoundError(
-            "No se encontró un Python instalado en el sistema. Instala Python 3.10+ "
-            "desde python.org (marcando \"Add to PATH\") y volvé a intentar."
+            "No se encontró un Python de python.org instalado en el sistema (el de "
+            "Microsoft Store no sirve para esto: no logra crear el entorno correctamente "
+            "desde acá). Instala Python 3.10+ desde python.org marcando \"Add to PATH\" "
+            "durante la instalación, y volvé a intentar."
         )
 
     def report(msg: str) -> None:
