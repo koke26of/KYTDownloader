@@ -131,7 +131,10 @@ def separate_local(
             "Demucs no está instalado. Instálalo con: pip install -e \".[stems]\""
         )
 
+    from . import _torchaudio_patch
     from demucs.separate import main as demucs_main
+
+    _torchaudio_patch.apply()
 
     if device == "auto":
         device = detect_device()

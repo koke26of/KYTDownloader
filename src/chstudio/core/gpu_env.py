@@ -10,12 +10,14 @@ real, así que subprocess es la forma correcta de invocarlo.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
 
+from . import _torchaudio_patch
 from ..settings import CONFIG_DIR
 
 GPU_ENV_DIR = CONFIG_DIR / "gpu-venv"
@@ -47,12 +49,42 @@ def gpu_python_path() -> Path:
 
 
 def is_installed() -> bool:
-    return gpu_python_path().is_file()
+    """True solo si hay un venv completo (no a medio crear/corrupto)."""
+    return gpu_python_path().is_file() and (GPU_ENV_DIR / "pyvenv.cfg").is_file()
+
+
+def _subprocess_env() -> dict[str, str]:
+    """PATH sin la carpeta del propio .exe empaquetado.
+
+    Dentro de un .exe de PyInstaller, PATH trae antepuesta la carpeta del programa
+    (para que el bootloader encuentre sus propias DLLs). Un subproceso hereda ese
+    PATH, así que un Python externo lanzado desde acá podría terminar cargando por
+    error una DLL de Python empaquetada junto a la app (de otra versión/build) en vez
+    de la suya — eso puede corromper silenciosamente cosas como la creación de un
+    venv (por ejemplo, queda sin pyvenv.cfg aunque el comando no reporte error).
+    """
+    env = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        app_dir = Path(sys.executable).resolve().parent
+        internal_dir = app_dir / "_internal"
+        parts = env.get("PATH", "").split(os.pathsep)
+        parts = [
+            p
+            for p in parts
+            if p and Path(p).resolve() not in (app_dir, internal_dir)
+        ]
+        env["PATH"] = os.pathsep.join(parts)
+    return env
 
 
 def _stream_subprocess(cmd: list[str], progress_callback: ProgressCallback | None) -> None:
     process = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=_subprocess_env(),
     )
     assert process.stdout is not None
     for line in process.stdout:
@@ -78,10 +110,22 @@ def install_gpu_env(progress_callback: ProgressCallback | None = None) -> None:
         if progress_callback:
             progress_callback(msg)
 
+    if GPU_ENV_DIR.exists() and not (GPU_ENV_DIR / "pyvenv.cfg").is_file():
+        report("Se encontró un entorno anterior incompleto; lo vuelvo a crear...")
+        shutil.rmtree(GPU_ENV_DIR)
+
     GPU_ENV_DIR.parent.mkdir(parents=True, exist_ok=True)
     if not GPU_ENV_DIR.exists():
         report(f"Creando entorno en {GPU_ENV_DIR} con {system_python}...")
         _stream_subprocess([system_python, "-m", "venv", str(GPU_ENV_DIR)], progress_callback)
+
+    if not (GPU_ENV_DIR / "pyvenv.cfg").is_file() or not gpu_python_path().is_file():
+        raise RuntimeError(
+            f"La creación del entorno falló: {GPU_ENV_DIR} quedó incompleta. Puede que "
+            f"\"{system_python}\" no sea un Python válido para crear entornos virtuales. "
+            "Instala Python desde python.org (no la versión de Microsoft Store) y "
+            "volvé a intentar."
+        )
 
     venv_python = str(gpu_python_path())
 
@@ -104,7 +148,9 @@ def install_gpu_env(progress_callback: ProgressCallback | None = None) -> None:
     )
 
     report("Instalando Demucs...")
-    _stream_subprocess([venv_python, "-m", "pip", "install", "demucs"], progress_callback)
+    _stream_subprocess(
+        [venv_python, "-m", "pip", "install", "demucs", "soundfile"], progress_callback
+    )
 
     report("Listo. La separación local usará la GPU automáticamente de ahora en más.")
 
@@ -128,18 +174,14 @@ def separate(
     stems_dir = song_dir / "stems"
     stems_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        str(gpu_python_path()),
-        "-m",
-        "demucs",
-        "-n",
-        model,
-        "-d",
-        "cuda",
-        "-o",
-        str(stems_dir),
-        str(source_audio),
-    ]
+    demucs_opts = ["-n", model, "-d", "cuda", "-o", str(stems_dir), str(source_audio)]
+    # Corre como script inline (en vez de `-m demucs`) para poder aplicar el mismo
+    # parche de guardado con soundfile dentro del venv externo: ese proceso es un
+    # Python aparte, sin acceso a nuestro paquete, así que el parche viaja como texto.
+    script = _torchaudio_patch.SOURCE + (
+        f"\nfrom demucs.separate import main\nmain({demucs_opts!r})\n"
+    )
+    cmd = [str(gpu_python_path()), "-c", script]
     _stream_subprocess(cmd, progress_callback)
 
     track_name = source_audio.stem

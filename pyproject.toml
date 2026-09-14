@@ -26,6 +26,10 @@ stems = [
     "demucs>=4.0",
     "torch>=2.1",
     "torchaudio>=2.1",
+    # soundfile ya es dependencia base (arriba). La necesitamos igual acá: torchaudio
+    # >=2.9 delega el guardado de audio a torchcodec, que a su vez pide una build de
+    # FFmpeg "shared" poco común. Evitamos esa cadena con un parche a torchaudio.save
+    # basado en soundfile (ver core/_torchaudio_patch.py).
 ]
 dev = [
     "pyinstaller>=6.3",
