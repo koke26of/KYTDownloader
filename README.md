@@ -5,6 +5,9 @@ App de escritorio (Windows) para agilizar el flujo: **YouTube → audio limpio �
 > Uso personal. Respeta los términos de servicio de YouTube y los derechos de autor del
 > contenido que descargues. La app no evade DRM ni está pensada para redistribuir contenido.
 
+> **Nuevo — v2 (versión web):** interfaz en el navegador para descargar desde un link y separar
+> en drums / bass / other / vocals con Demucs (GPU si hay). Ver [`web/`](web/README.md).
+
 ## ¿Qué hace?
 
 1. **Descargar**: pega una URL de YouTube y obtén el audio (WAV/MP3) o el video (MP4).
