@@ -8,7 +8,10 @@ Interfaz web local (Gradio) para **descargar audio desde un link y separarlo en 
 1. **Link**: pega una URL (YouTube, SoundCloud, Bandcamp… cualquier sitio soportado por
    yt-dlp) y descarga el mejor audio disponible.
 2. **Archivo**: o sube un archivo local (mp3, wav, flac, ogg, opus, m4a, webm…).
-3. **Separar**: obtén 4 stems en WAV, con reproductor en el navegador y descarga directa.
+3. **BPM y tonalidad**: al cargar el audio muestra BPM, tonalidad y código Camelot (estilo
+   Tunebat), calculados localmente con librosa. Al separar se recalculan con los stems
+   (batería → BPM, bajo + other → tonalidad), que es más preciso.
+4. **Separar**: obtén 4 stems en WAV, con reproductor en el navegador y descarga directa.
 
 Modelos:
 - `htdemucs` — por defecto, rápido.

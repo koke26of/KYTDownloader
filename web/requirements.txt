@@ -4,3 +4,4 @@ gradio>=5.0
 soundfile>=0.12
 imageio-ffmpeg>=0.5
 yt-dlp[default]>=2025.11.0
+librosa>=0.10
